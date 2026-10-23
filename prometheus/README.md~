@@ -1,0 +1,8 @@
+# What is Prometheus?
+Prometheus is an open-source monitoring and alerting system. It answers questions like “Is my server up?”, “How much CPU is it using?” and “Is disk space running out?”, and it keeps the history so you can see trends over time.
+
+## The key ideas:
+
+* **Pull mode** : Prometheus goes out and scrapes metrics from your systems every 15 seconds. Your system does not push data to it. 
+* **Exporters** : Most software does not expose metrics by default. An exporter is a small program that sit next to the system, coillects its stats, and publish them as a plain text on a web page(usually /metrics). **Node Exporter** usually does this for Linux machines: CPU, memory, disk and network.
+* **Time-series database** : Every scrapped value is stored with a timestamp and labels, such as `instance="server1"` 
