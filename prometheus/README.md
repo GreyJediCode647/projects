@@ -95,3 +95,82 @@ docker compose ps
 Then open http://localhost:9090 and go to **Status->Targets.**
 
 >Why did we do this: `-d` runs the container in the background. The Target page is your health check: both`prometheus` and `node` should show **UP in green**.
+
+## Lets add a webserver to this enviornment
+
+There are two different ways to monitor a webserver, they are Blackbox monitoring and Whitebox monitoring.
+
+**1. Blackbox monitoring "Does it work from outside?"**
+The Blackbox Exporter acts like a user. It sends a HTTP request to your web server and reports whether it got a good reponse and how long it took. It does not know or care about what is inside the server.
+> Why: This is the closest thing to real health monitoring. A server can be running while the site is broken, and only a external probe catches that. 
+
+**2. Whitebox monitoring "What is haappening inside?"**
+The NGINXPrometheus Exporter reads nginx's internal status page and publish metrics like active connections and total request handels. 
+> Why: This tells you how busy the server is and helps you spot trends, but it can't tell you wheather a user would see a working page. Together the two approches cover both questions. 
+
+**Step 1: Create a Web server (Nginx)**
+Create a nginx.conf file
+```bash
+server {
+    listen 80;
+
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+    }
+
+    location = /stub_status {
+        stub_status;
+    }
+}
+```
+> This serves the default nginx welcome page and exposes the internal `stub_status` page that the expoter reads. For the lab it is fine, but in production you would restrict `/stub_status` so the public can't see it. 
+
+**Step 2: Make changes to `docker-compose.yml` (under `services:`):
+```bash
+  webserver:
+    image: nginx:stable
+    container_name: webserver
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z
+    restart: unless-stopped
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx-exporter
+    command:
+      - --nginx.scrape-uri=http://webserver:80/stub_status
+    depends_on:
+      - webserver
+    restart: unless-stopped
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    container_name: blackbox-exporter
+    restart: unless-stopped
+```
+**Step3: Make changes to `prometheus.yml` (under `scrape_configs:`):**
+```bash
+  - job_name: "nginx"
+    static_configs:
+      - targets: ["nginx-exporter:9113"]
+
+  - job_name: "blackbox-http"
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://webserver:80
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+```
+> The rule to remember for YAML is that siblings must line up exactly. Everything at the same level, such as the service names under `services:`, needs the same number of spaces, and children go deeper by a consistent amount, usually 2.
+>  When you get this error again, comparing the indentation of neighbouring lines is the first thing to check.
